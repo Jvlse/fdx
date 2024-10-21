@@ -1,14 +1,18 @@
 #include <iostream>
 #include <string>
 #include <b15f/b15f.h>
+#include <chrono>
+#include <thread>
 
 #include <vector>
 #include <bitset>
 
+#include <unistd.h>
+
+using namespace std::chrono;
 
 int CLOCK_MS = 50;  // für die clock
 bool isMaster = false;  // gibt an ob Sender (true) oder Empfänger (false)
-
 
 struct ControlSignals {
     std::bitset<4> StartByte, EndByte, StartChecksum, EndChecksum, ACK, AQR, ReversedStartByte;
@@ -83,7 +87,6 @@ void sendBuffer(std::vector<std::bitset<4>> buffer, B15F &drv) {
             sendSingle(static_cast<std::bitset<8>>(bin.to_ulong()), drv);
         }
     }
-    
 }
 
 // setzt byte wieder zusammen und returned es als char
@@ -128,5 +131,45 @@ int main () {
 
     // Konvertiert string zu bytes und teilt sie in 3 4-bit bitsets
     std::vector<std::bitset<4>> stringBinaryRepesentation = splitBytes(strToBinary(input));
+    
+    // für jedes byte 3 bitsets
+    for (size_t i = 0; i < stringBinaryRepesentation.size(); i += 3) {
+        std::vector<std::bitset<4>> buffer;
+        
+        buffer.push_back(controlSignals.StartByte);
 
+        // nächste 3 bitsets von stringBinaryRepesentation pushen
+        for (size_t j = 0; j < 3 && (i + j) < stringBinaryRepesentation.size(); ++j) {
+            buffer.push_back(stringBinaryRepesentation[i + j]);
+        }
+
+        buffer.push_back(controlSignals.EndByte);
+        buffer.push_back(controlSignals.StartChecksum);
+        // Checksum hier
+
+        // nach 3 4-bit bitsets checksum
+        std::bitset<8> combinedBits;
+        combinedBits |= (stringBinaryRepesentation[i].to_ulong() << 5);
+        combinedBits |= (stringBinaryRepesentation[i + 1].to_ulong() << 2);
+        combinedBits |= (stringBinaryRepesentation[i + 2].to_ulong() >> 1);
+        buffer.push_back(std::bitset<4>(createChecksum(combinedBits)));
+
+        buffer.push_back(controlSignals.EndChecksum);
+        
+        for (const auto& bin : buffer) {
+            sendSingle(bin.to_ulong(), drv);
+            if(drv.getRegister(&PINA) == controlSignals.AQR.to_ulong() || drv.getRegister(&PINA) == manchester(true, controlSignals.AQR).to_ulong()){
+                std::cout << "Fehler bei Übertragung, erneut senden!" << std::endl;
+                i -=6;
+                break;
+            }
+        }
+        // Auf ACK oder AQR warten
+        // bei AQR, buffer erneut senden; evtl loop zum resenden
+    }
+    
+    // th1.join();
+    // Multithreading um gleichzeitig zu senden und zu empfangen
+
+    return 0;
 }
