@@ -64,13 +64,46 @@ std::vector<std::bitset<4>> splitBytes(const std::vector<std::bitset<8>>& fullBy
     return triplets;
 }
 
-
 // Sendet einen Byte, die ersten 4 bit ohne flanke und die restlichen mit flanke
 void sendSingle(std::bitset<8> data, B15F &drv){
     drv.setRegister(&PORTA, manchester(false, data.to_ulong()).to_ulong());
     drv.delay_ms(CLOCK_MS);
     drv.setRegister(&PORTA, manchester(true, data.to_ulong()).to_ulong());
     drv.delay_ms(CLOCK_MS);
+}
+
+void sendBuffer(std::vector<std::bitset<4>> buffer, B15F &drv) {
+    for (const auto& bin : buffer) {
+        if(isMaster){
+            std::cout << manchester(false, bin) << std::endl;
+            sendSingle(static_cast<std::bitset<8>>(bin.to_ulong()), drv);
+            std::cout << std::endl;
+        }else{
+            std::cout << manchester(false, bin) << std::endl;
+            sendSingle(static_cast<std::bitset<8>>(bin.to_ulong()), drv);
+        }
+    }
+    
+}
+
+// setzt byte wieder zusammen und returned es als char
+char translateByte(const std::vector<std::bitset<4>>& byteBuffer) {
+    // Check if the size of the vector is 3
+    if (byteBuffer.size() != 3) {
+        throw std::invalid_argument("Error: Word buffer must contain exactly 3 4-bit bitsets. But it contains " + std::to_string(byteBuffer.size()) + " bitsets.");
+    }
+
+    // Combine the 4-bit bitsets into a single 8-bit bitset
+    std::bitset<8> combinedBits;
+    combinedBits |= (byteBuffer[0].to_ulong() << 5);
+    combinedBits |= (byteBuffer[1].to_ulong() << 2);
+    combinedBits |= (byteBuffer[2].to_ulong() >> 1);
+
+    return static_cast<char>(combinedBits.to_ulong());
+}
+
+int createChecksum(std::bitset<8>& byte) {
+    return byte.count();
 }
 
 
@@ -92,4 +125,8 @@ int main () {
     // Name des file wird über cin eingegeben
     std::string input;
     std::getline(std::cin, input);
+
+    // Konvertiert string zu bytes und teilt sie in 3 4-bit bitsets
+    std::vector<std::bitset<4>> stringBinaryRepesentation = splitBytes(strToBinary(input));
+
 }
