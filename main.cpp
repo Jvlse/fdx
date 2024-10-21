@@ -91,12 +91,12 @@ void sendBuffer(std::vector<std::bitset<4>> buffer, B15F &drv) {
 
 // setzt byte wieder zusammen und returned es als char
 char translateByte(const std::vector<std::bitset<4>>& byteBuffer) {
-    // Check if the size of the vector is 3
+    // größe muss 3 sein um byte zusammensetzen zu können
     if (byteBuffer.size() != 3) {
         throw std::invalid_argument("Error: Word buffer must contain exactly 3 4-bit bitsets. But it contains " + std::to_string(byteBuffer.size()) + " bitsets.");
     }
 
-    // Combine the 4-bit bitsets into a single 8-bit bitset
+    // Kombiniert 4-bit bitsets zu 8-bit bitset
     std::bitset<8> combinedBits;
     combinedBits |= (byteBuffer[0].to_ulong() << 5);
     combinedBits |= (byteBuffer[1].to_ulong() << 2);
@@ -110,12 +110,124 @@ int createChecksum(std::bitset<8>& byte) {
 }
 
 
+void receiveBuffer(B15F& drv) {
+    ControlSignals controlSignals;
+
+    std::bitset<4> currentHalfByte = 0b0000;
+    bool byteStarted = false;
+    bool byteEnded = false;
+
+    bool checksumStarted = false;
+    bool checksumEnded = false;
+
+    bool skip = false;
+
+    std::vector<std::bitset<4>> byteBuffer;
+    std::vector<std::bitset<4>> checksumBuffer;
+
+    // timer initialisieren
+    time_point<system_clock> t = system_clock::now();
+
+    while (true) {
+        std::bitset<4> tmp(drv.getRegister(&PINA));
+        time_point<system_clock> now = system_clock::now();
+
+        if(now >= t+ milliseconds(static_cast<int>(CLOCK_MS * 1.6))){
+            currentHalfByte = tmp;
+            t = now;
+            skip = false;
+            continue;
+        }
+
+        
+        if(manchester(true, tmp) == currentHalfByte){
+            t= now;
+            if(skip){
+                skip = false;
+                currentHalfByte=tmp;
+                continue;
+            }
+            skip = true;
+
+            if (currentHalfByte == controlSignals.EndByte) {
+                byteEnded = true;
+            }
+
+            if (byteStarted && !byteEnded) {
+                byteBuffer.push_back(currentHalfByte);
+            }
+
+            if (currentHalfByte == controlSignals.StartByte) {
+                byteStarted = true;
+                byteEnded = false;
+                byteBuffer.clear();
+                checksumBuffer.clear();
+            }
+
+            if (currentHalfByte == controlSignals.EndChecksum) {
+                checksumEnded = true;
+                checksumStarted = false;
+            }
+
+            if (checksumStarted && !checksumEnded) {
+                
+                checksumBuffer.push_back(currentHalfByte);
+            }
+
+            if (currentHalfByte == controlSignals.StartChecksum) {
+                checksumStarted = true;
+                checksumEnded = false;
+            } 
+
+            if (currentHalfByte == controlSignals.EndChecksum && byteStarted && byteEnded) {
+                // checksum ausrechnen
+
+                char byte = translateByte(byteBuffer);
+                std::cout << byte << std::flush;
+                std::bitset<8> myBitset(byte);
+                int calculatedChecksum = createChecksum(myBitset);
+
+                if (!checksumBuffer.empty() && checksumBuffer.size() > 0) {
+                    int checksum = checksumBuffer[0].to_ulong();
+
+                    if (checksum == calculatedChecksum) {
+                        // sendBuffer({controlSignals.ACK}, drv);
+                    } else {
+                        sendBuffer({controlSignals.AQR}, drv);
+                    }
+                }  else {
+                    sendBuffer({controlSignals.AQR}, drv);
+                }
+                byteBuffer.clear();
+                checksumBuffer.clear();
+            } else if (currentHalfByte == controlSignals.EndChecksum) {
+                // in mitte des bytes angefangen mitzulesen
+                sendBuffer({controlSignals.AQR}, drv);
+                byteBuffer.clear();
+                checksumBuffer.clear();
+            }
+        }
+        currentHalfByte=tmp;
+    }
+
+    // while (1) {
+        // currentHalfByte = drv.getRegister (&PINA);
+        // cout << ((int)drv.getRegister (&PINA)) << endl; drv.delay_ms(10);
+
+        // if (currentHalfByte == controlSignals.EndChecksum) {
+            // ACK oder AQR senden
+        // }    
+    // }
+}
+
+
 int main () {
     B15F& drv = B15F::getInstance();
 
     if (isatty(fileno(stdin))) {
         std::cout <<"Listening mode" << std::endl;
         drv.setRegister(&DDRA, 0b11110000); // Setzt erste 4 bits auf 1111 (letzte 4 zum Übertragen)
+        receiveBuffer(drv);
         return 0;
     } else {
         isMaster = true;    // Gibt an das Signal von diesem Gerät gesendet wird
