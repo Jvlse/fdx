@@ -12,7 +12,16 @@ struct ControlSignals {
     ControlSignals() : StartByte(0b1011), EndByte(0b1001), StartChecksum(0b1010), EndChecksum(0b1000), ACK(0b1100), AQR(0b1110),ReversedStartByte(0b1101) {}
 };
 
+// clocking
+std::bitset<4> manchester(bool flank, std::bitset<4> data) {
+    if(!flank) {
+        return data; // falls flanke -> return data
+    }
+
+    return data ^ std::bitset<4>(0b1111); // falls keine flanke -> return !data
+}
+
 
 int main () {
-
+    
 }
