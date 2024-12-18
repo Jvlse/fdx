@@ -2,7 +2,6 @@
 #include <string>
 #include <b15f/b15f.h>
 #include <chrono>
-#include <thread>
 
 #include <vector>
 #include <bitset>
@@ -11,92 +10,98 @@
 
 using namespace std::chrono;
 
-int CLOCK_MS = 50;  // für die clock
-bool isMaster = false;  // gibt an ob Sender (true) oder Empfänger (false)
+int CLOCK_MS = 50;
+bool isMaster = false;
 
+
+// usage: echo ~/mnt/datadisk/*random.bin | ./main
+// compile:  g++ -std=c++17 main.cpp -lb15fdrv -o main
+
+ 
 struct ControlSignals {
-    std::bitset<4> StartByte, EndByte, StartChecksum, EndChecksum, ACK, AQR, ReversedStartByte;
+    std::bitset<4> StartByte, EndByte, StartChecksum, EndChecksum, ACK, AQR, ReversedStartByte, Beacon, Beacon2;
 
-    // alle bitsets die mit 1 beginnen sind Kontrolsignale
-    ControlSignals() : StartByte(0b1011), EndByte(0b1001), StartChecksum(0b1010), EndChecksum(0b1000), ACK(0b1100), AQR(0b1110),ReversedStartByte(0b1101) {}
+    // all binaries are prefixed with a 1 to indicate that the 4-bit value is a command
+    ControlSignals() : StartByte(0b1011), EndByte(0b1001), StartChecksum(0b1010), EndChecksum(0b1000), ACK(0b1101), AQR(0b1110), ReversedStartByte(0b1101), Beacon(0b1100), Beacon2(0b0011) {}
 };
 
-// clocking
-std::bitset<4> manchester(bool flank, std::bitset<4> data) {
-    if(!flank) {
-        return data; // falls flanke -> return data
-    }
 
-    return data ^ std::bitset<4>(0b1111); // falls keine flanke -> return !data
+std::bitset<4> manchester(bool flank, std::bitset<4> data) {
+    return flank? ~data : data;
 }
 
 
 /**
- * Konvertiert jeden char vom string zu binär (ASCII)
- * Returned binary Representation von jedem char als vektor von bytes.
+ * Converts each character of a given string to its binary representation. (ASCII / UTF-8)
+ * Returns the binary representation of each character as a vector of bitsets.
  * 
- * @param s string der zu binär konvertiert wird
- * @return std::vector<std::bitset<8>> vektor der jeden char in binär enthält
+ * @param s The input string to be converted to binary.
+ * @return std::vector<std::bitset<8>> Vector of bitsets representing the binary of each character.
  */
 std::vector<std::bitset<8>> strToBinary(const std::string& s) {
     int n = s.length();
     std::vector<std::bitset<8>> binaryVector;
 
-    // Alle character durchlaufen
+    // Iterate through each character in the string
     for (int i = 0; i < n; i++) {
-        int val = static_cast<int>(s[i]); // jeder char wird zu ASCII decimal
-        std::bitset<8> bin(val); // Konvertiert ASCII zu binary
+        int val = static_cast<int>(s[i]); // convert each char to ASCII value
+        std::bitset<8> bin(val); // Convert ASCII value to binary
         binaryVector.push_back(bin); // Add the binary representation to the vector
     }
 
     return binaryVector;
 }
 
-// bytes werden in 3 teile geteilt
+
 std::vector<std::bitset<4>> splitBytes(const std::vector<std::bitset<8>>& fullBytes) {
     std::vector<std::bitset<4>> triplets;
 
-    for (const auto& byte : fullBytes) { // alle bitsets fangen mit 0 an um zu zeigen, dass es kein control signal ist
-        std::bitset<4> firstThrird(0b0111 & (byte.to_ulong() >> 5)); // byte wird um 5 nach rechts geshiftet und dann mit 0111 AND genommen
-        std::bitset<4> secondThird(0b0111 & (byte.to_ulong() >> 2)); // -> 2 nach rechts
-        std::bitset<4> lastThird(0b0110 & (byte.to_ulong() << 1)); // letztes Bit immer 0 -> 1 nach links, evtl 0 als check mit modulo
+    for (const auto& byte : fullBytes) {
+        // all bitsets are prefixed with a 0 to indicate that the 4-bit value is a word
+
+        std::bitset<4> firstThrird(0b0111 & byte.to_ulong() >> 5); 
+        std::bitset<4> secondThird(0b0111 & (byte.to_ulong() >> 2));
+        std::bitset<4> lastThird((0b0110 & byte.to_ulong() << 1)); // last bit is always 0 (don't care)
 
         triplets.push_back(firstThrird);
         triplets.push_back(secondThird);
         triplets.push_back(lastThird);
     }
+
     return triplets;
 }
 
-// Sendet einen Byte, die ersten 4 bit ohne flanke und die restlichen mit flanke
-void sendSingle(std::bitset<8> data, B15F &drv){
-    drv.setRegister(&PORTA, manchester(false, data.to_ulong()).to_ulong());
+
+void sendSingle(std::bitset<4> data, B15F &drv){
+    std::cout << "Sending nibble!" << std::endl;
+    drv.setRegister(&PORTA, manchester(false, data).to_ulong());
     drv.delay_ms(CLOCK_MS);
-    drv.setRegister(&PORTA, manchester(true, data.to_ulong()).to_ulong());
+    drv.setRegister(&PORTA, manchester(true, data).to_ulong());
     drv.delay_ms(CLOCK_MS);
 }
 
 void sendBuffer(std::vector<std::bitset<4>> buffer, B15F &drv) {
-    for (const auto& bin : buffer) {
+    for (const auto& bin : buffer) { 
         if(isMaster){
             std::cout << manchester(false, bin) << std::endl;
-            sendSingle(static_cast<std::bitset<8>>(bin.to_ulong()), drv);
-            std::cout << std::endl;
+            sendSingle(bin, drv);
+            std::cout << "a" << std::endl;
         }else{
             std::cout << manchester(false, bin) << std::endl;
-            sendSingle(static_cast<std::bitset<8>>(bin.to_ulong()), drv);
+            sendSingle(bin, drv);
         }
     }
+    
 }
 
-// setzt byte wieder zusammen und returned es als char
+
 char translateByte(const std::vector<std::bitset<4>>& byteBuffer) {
-    // größe muss 3 sein um byte zusammensetzen zu können
+    // Check if the size of the vector is 3
     if (byteBuffer.size() != 3) {
         throw std::invalid_argument("Error: Word buffer must contain exactly 3 4-bit bitsets. But it contains " + std::to_string(byteBuffer.size()) + " bitsets.");
     }
 
-    // Kombiniert 4-bit bitsets zu 8-bit bitset
+    // Combine the 4-bit bitsets into a single 8-bit bitset
     std::bitset<8> combinedBits;
     combinedBits |= (byteBuffer[0].to_ulong() << 5);
     combinedBits |= (byteBuffer[1].to_ulong() << 2);
@@ -105,15 +110,25 @@ char translateByte(const std::vector<std::bitset<4>>& byteBuffer) {
     return static_cast<char>(combinedBits.to_ulong());
 }
 
+
+template<std::size_t N>
+void reverse(std::bitset<N> &b) {
+    for(std::size_t i = 0; i < N/2; ++i) {
+        bool t = b[i];
+        b[i] = b[N-i-1];
+        b[N-i-1] = t;
+    }
+}
+
 int createChecksum(std::bitset<8>& byte) {
-    return byte.count();
+    return 8-byte.count();
 }
 
 
 void receiveBuffer(B15F& drv) {
     ControlSignals controlSignals;
 
-    std::bitset<4> currentHalfByte = 0b0000;
+    std::bitset<4> currentHalfByte = 0b0000; // arbitrary value
     bool byteStarted = false;
     bool byteEnded = false;
 
@@ -125,7 +140,7 @@ void receiveBuffer(B15F& drv) {
     std::vector<std::bitset<4>> byteBuffer;
     std::vector<std::bitset<4>> checksumBuffer;
 
-    // timer initialisieren
+    // timer init
     time_point<system_clock> t = system_clock::now();
 
     while (true) {
@@ -140,7 +155,7 @@ void receiveBuffer(B15F& drv) {
         }
 
         
-        if(manchester(true, tmp) == currentHalfByte){
+        if(manchester(true, tmp) == currentHalfByt e){
             t= now;
             if(skip){
                 skip = false;
@@ -148,6 +163,7 @@ void receiveBuffer(B15F& drv) {
                 continue;
             }
             skip = true;
+
 
             if (currentHalfByte == controlSignals.EndByte) {
                 byteEnded = true;
@@ -169,6 +185,7 @@ void receiveBuffer(B15F& drv) {
                 checksumStarted = false;
             }
 
+
             if (checksumStarted && !checksumEnded) {
                 
                 checksumBuffer.push_back(currentHalfByte);
@@ -180,7 +197,7 @@ void receiveBuffer(B15F& drv) {
             } 
 
             if (currentHalfByte == controlSignals.EndChecksum && byteStarted && byteEnded) {
-                // checksum ausrechnen
+                // calculate checksum over byteBuffer
 
                 char byte = translateByte(byteBuffer);
                 std::cout << byte << std::flush;
@@ -201,7 +218,7 @@ void receiveBuffer(B15F& drv) {
                 byteBuffer.clear();
                 checksumBuffer.clear();
             } else if (currentHalfByte == controlSignals.EndChecksum) {
-                // in mitte des bytes angefangen mitzulesen
+                // started listening in the middle of a word
                 sendBuffer({controlSignals.AQR}, drv);
                 byteBuffer.clear();
                 checksumBuffer.clear();
@@ -215,73 +232,99 @@ void receiveBuffer(B15F& drv) {
         // cout << ((int)drv.getRegister (&PINA)) << endl; drv.delay_ms(10);
 
         // if (currentHalfByte == controlSignals.EndChecksum) {
-            // ACK oder AQR senden
-        // }    
+            // send ACK or AQR
+        // } 
     // }
+}
+
+
+
+
+
+void read(B15F drv)
+{
+    std::bitset<4> prev = 0b0111;
+    while(1){
+        std::bitset<4> temp(drv.getRegister(&PINA));
+        std::cout << temp << " - "<< manchester(true, temp) << std::endl;
+        if(manchester(true, temp) == prev){
+            // wort!
+            std::cout << "wORT " << std::endl;
+        } 
+        prev = temp;    
+    }
 }
 
 
 int main () {
     B15F& drv = B15F::getInstance();
-
-    if (isatty(fileno(stdin))) {
-        std::cout <<"Listening mode" << std::endl;
-        drv.setRegister(&DDRA, 0b11110000); // Setzt erste 4 bits auf 1111 (letzte 4 zum Übertragen)
-        receiveBuffer(drv);
-        return 0;
-    } else {
-        isMaster = true;    // Gibt an das Signal von diesem Gerät gesendet wird
-        std::cout <<"Writing mode" << std::endl;
-        drv.setRegister(&DDRA, 0b00001111); // Setzt erste 4 bits auf 1111 (erste 4 zum Übertragen)
-    }
-
+	
     ControlSignals controlSignals;
 
-    // Name des file wird über cin eingegeben
+    if(isatty(fileno(stdin))) {
+        std::cout <<"Listening mode" << std::endl;
+        drv.setRegister(&DDRA, controlSignals.Beacon.to_ulong() << 4);	// BEACON
+        while(drv.getRegister(&DDRA) != 0b11111111) {}
+        receiveBuffer(drv);
+        // read(drv);
+        return 0;
+    } else {
+        isMaster = true;
+        std::cout <<"Writing mode" << std::endl;
+        drv.setRegister(&DDRA, controlSignals.Beacon.to_ulong());
+    }
+	
+	
+    // while(drv.getRegister(&DDRA) != 0b11111111) {}
+	
+
+    // first get string / file from pipe
     std::string input;
     std::getline(std::cin, input);
 
-    // Konvertiert string zu bytes und teilt sie in 3 4-bit bitsets
+    // Convert the string to bytes and split each byte into 3 4-bit bitsets
     std::vector<std::bitset<4>> stringBinaryRepesentation = splitBytes(strToBinary(input));
-    
-    // für jedes byte 3 bitsets
+
+    // start while loop here
     for (size_t i = 0; i < stringBinaryRepesentation.size(); i += 3) {
         std::vector<std::bitset<4>> buffer;
         
         buffer.push_back(controlSignals.StartByte);
 
-        // nächste 3 bitsets von stringBinaryRepesentation pushen
+        // add next 3 bitsets of stringBinaryRepesentation
         for (size_t j = 0; j < 3 && (i + j) < stringBinaryRepesentation.size(); ++j) {
             buffer.push_back(stringBinaryRepesentation[i + j]);
         }
 
         buffer.push_back(controlSignals.EndByte);
         buffer.push_back(controlSignals.StartChecksum);
-        // Checksum hier
+        // Checksum here, todo later
 
-        // nach 3 4-bit bitsets checksum
-        std::bitset<8> combinedBits;
-        combinedBits |= (stringBinaryRepesentation[i].to_ulong() << 5);
-        combinedBits |= (stringBinaryRepesentation[i + 1].to_ulong() << 2);
-        combinedBits |= (stringBinaryRepesentation[i + 2].to_ulong() >> 1);
-        buffer.push_back(std::bitset<4>(createChecksum(combinedBits)));
+        // after 3 4-bit words have been sent = 1 Byte, create checksum
+        std::bitset<8> byte;
+        byte |= (stringBinaryRepesentation[i].to_ulong() << 5);
+        byte |= (stringBinaryRepesentation[i + 1].to_ulong() << 2);
+        byte |= (stringBinaryRepesentation[i + 2].to_ulong() >> 1);
+        buffer.push_back(std::bitset<4>(createChecksum(byte)));
 
         buffer.push_back(controlSignals.EndChecksum);
         
-        for (const auto& bin : buffer) {
-            sendSingle(bin.to_ulong(), drv);
+		bool error = false;
+        for (const auto& nibble : buffer) {
+            sendSingle(nibble, drv);
             if(drv.getRegister(&PINA) == controlSignals.AQR.to_ulong() || drv.getRegister(&PINA) == manchester(true, controlSignals.AQR).to_ulong()){
-                std::cout << "Fehler bei Übertragung, erneut senden!" << std::endl;
-                i -=6;
-                break;
+                error = true;
             }
         }
-        // Auf ACK oder AQR warten
-        // bei AQR, buffer erneut senden; evtl loop zum resenden
+        if(error) {
+        	std::cout << "Fehler bei Übertragung, erneut senden!" << std::endl;
+            i-=3; // reduce i to get back to beginning of byte
+            error = false;
+        }
+
+        // wait for ACK or AQR, todo later
+        // if AQR, resend buffer; you may want to add a loop here to handle resending
     }
-    
-    // th1.join();
-    // Multithreading um gleichzeitig zu senden und zu empfangen
 
     return 0;
 }

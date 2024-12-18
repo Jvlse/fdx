@@ -1,7 +1,8 @@
 #include <Arduino.h>
 #include <bitHelpers.h>
-#include <StandardCplusplus.h>
-#include <boost_1_51_0.h>
+#include <Vector.h>
+// #include <StandardCplusplus.h>
+// #include <boost_1_51_0.h>
 
 // echo ~/mnt/datadisk/*random.bin + "\n" > /dev/ttyUSB0
 
@@ -17,12 +18,16 @@ const uint8_t START_BYTE = 0b1011;
 const uint8_t END_BYTE = 0b1001;
 const uint8_t START_CHECKSUM = 0b1010;
 const uint8_t END_CHECKSUM = 0b1000;
-const uint8_t ACK = 0b1100;
+const uint8_t ACK = 0b1101;
 const uint8_t AQR = 0b1110;
+const uint8_t BEACON = 0b1100;
+const uint8_t BEACON2 = 0b0011;
 
 // Global Variables
 const int MAX_BUFFER_SIZE = 32; // Maximum size for buffers
-uint8_t byteBuffer[MAX_BUFFER_SIZE];
+//uint8_t byteBuffer[MAX_BUFFER_SIZE];
+Vector<uint8_t> byteBuffer;
+Vector<uint8_t> recievedBuffer;
 uint8_t checksumBuffer[MAX_BUFFER_SIZE];
 int byteBufferIndex = 0;
 int checksumBufferIndex = 0;
@@ -30,6 +35,66 @@ bool byteStarted = false;
 bool byteEnded = false;
 bool receivingChecksum = false;
 bool isMaster = false; // Determines whether the Arduino is in sender mode
+bool write = false;
+bool read = false;
+
+
+// Main Setup and Loop
+void setup() {
+    Serial.begin(9600);
+
+    setPinsAsInput();
+
+    
+    Serial.read();
+
+    Serial.println(isMaster ? "Master (Sender) Mode" : "Slave (Receiver) Mode");
+}
+
+void loop() {
+    if (isMaster) {
+        // Sending Mode
+        const char* input = "Hello, Arduino!";
+        uint8_t stringBinaryRepesentation[MAX_BUFFER_SIZE];
+        int binaryLength = 0;
+
+        strToBinary(input, stringBinaryRepesentation, binaryLength);
+
+        uint8_t triplets[MAX_BUFFER_SIZE];
+        int tripletLength = 0;
+
+        splitBytes(stringBinaryRepesentation, binaryLength, triplets, tripletLength);
+
+        uint8_t buffer[MAX_BUFFER_SIZE];
+        int bufferLength = 0;
+
+        for (int i = 0; i < tripletLength; i += 3) {
+            buffer[bufferLength++] = START_BYTE;
+
+            for (int j = 0; j < 3 && (i + j) < tripletLength; ++j) {
+                buffer[bufferLength++] = triplets[i + j];
+            }
+
+            buffer[bufferLength++] = END_BYTE;
+            buffer[bufferLength++] = START_CHECKSUM;
+
+            uint8_t combinedBits = 0;
+            combinedBits |= (triplets[i] << 5);
+            combinedBits |= (triplets[i + 1] << 2);
+            combinedBits |= (triplets[i + 2] >> 1);
+
+            buffer[bufferLength++] = createChecksum(combinedBits);
+            buffer[bufferLength++] = END_CHECKSUM;
+
+            sendBuffer(buffer, recievedBuffer);
+        }
+
+        delay(2000); // Delay before resending
+    } else {
+        // Receiving Mode
+        receiveData();
+    }
+}
 
 // Helper Functions
 uint8_t manchester(bool flank, uint8_t data) {
@@ -53,7 +118,7 @@ void splitBytes(const uint8_t* fullBytes, int fullLength, uint8_t* triplets, int
     }
 }
 
-char translateByte(uint8_t* byteBuffer) {
+char translateByte(Vector<uint8_t> byteBuffer) {
     if (byteBufferIndex != 3) {
         Serial.println("Error: byteBuffer must contain exactly 3 chunks.");
         return '\0';
@@ -76,68 +141,60 @@ int createChecksum(const uint8_t byte) {
 }
 
 
-
-uint8_t[] recieveSingle(uint8_t sendData, uint8_t[] recievedData) {
-    uint8_t data[4] = getDATA_PINS();
+uint8_t getDATA_PINS() {
+    uint8_t data = 0;
     for (int i = 0; i < 4; i++) {
-      recievedData.push(manchester(false, digitalRead(i)));
+        data += digitalRead(DATA_PINS[i]) * pow(2, i);
+    }
+    return data;
+}
+
+
+Vector<uint8_t> recieveSingle(uint8_t sendData, Vector<uint8_t> recievedData) {
+    for (int i = 0; i < 4; i++) {
+      recievedData.push_back(manchester(false, digitalRead(i)));
       if(write) {
-        digitalWrite(i+4, manchester(false, data); 
+        digitalWrite(i+4, manchester(false, sendData)); 
       }
     }
     delay(CLOCK_MS);
     
     for (int i = 0; i < 4; i++) {
-      recievedData.push(manchester(false, digitalRead(i)));
+      recievedData.push_back(manchester(true, digitalRead(i)));
       if(write) {
-        digitalWrite(i+4, manchester(false, data);
+        digitalWrite(i+4, manchester(true, sendData));
         write = false;
       }
     }
     delay(CLOCK_MS);
+    return recievedData;
 }
-
-
-
-uint8_t buffer[];
-uint8_t newNumber = 0b100;
-
-void push(uint8_t buffer[]) {
-  for (int i = buffer.length; i > 0; i--) {
-    if (i == 0) {
-      buffer[i] = newNumber;
-    } else {
-      buffer[i] = buffer[i - 1];
-    }
-  }
-}
-
 
 
 // Sending Functions
-void sendSingle(uint8_t data) {
-    int data[4] = getDATA_PINS();
+void sendSingle(uint8_t sendData) {
     for (int i = 0; i < 4; i++) {
-      digitalWrite(DATA_PINS[i], manchester(false, data%pow(2, i))
+        digitalWrite(i+4, manchester(false, sendData));
     }
     delay(CLOCK_MS);
-    digitalWrite(DATA_PINS, manchester(true, data));
+    
+    for (int i = 0; i < 4; i++) {
+        digitalWrite(i+4, manchester(true, sendData));
+    }
     delay(CLOCK_MS);
 }
 
-void sendBuffer(const uint8_t* buffer, int length) {
-    for (int i = 0; i < length; i++) {
-        sendSingle(buffer[i]);
+void sendBuffer(Vector<uint8_t> buffer, Vector<uint8_t> recievedBuffer) {
+    for (size_t i = 0; i < buffer.size(); i++) {
+        if(read) {
+          recieveSingle(buffer[i], recievedBuffer); // TODO: replace i in recievedBuffer
+        }
+        else {
+           sendSingle(buffer[i]);
+        }
     }
 }
 
-int getDATA_PINS() {
-    int data[4];
-    for (int i = 0; i < 4; i++) {
-        data[i] = digitalRead(DATA_PINS[i]) * pow(2, i);
-    }
-    return data;
-}
 
 // Receiving Functions
 void processReceivedData() {
@@ -209,61 +266,5 @@ void setPinsAsInput() {
   for (int i = 0; i < 4; i++) {
     pinMode(DATA_PINS[i], INPUT);
   }
+}
   
-
-// Main Setup and Loop
-void setup() {
-    Serial.begin(9600);
-
-    setPinsAsInput();
-
-    
-    Serial.read();
-
-    Serial.println(isMaster ? "Master (Sender) Mode" : "Slave (Receiver) Mode");
-}
-
-void loop() {
-    if (isMaster) {
-        // Sending Mode
-        const char* input = "Hello, Arduino!";
-        uint8_t stringBinaryRepesentation[MAX_BUFFER_SIZE];
-        int binaryLength = 0;
-
-        strToBinary(input, stringBinaryRepesentation, binaryLength);
-
-        uint8_t triplets[MAX_BUFFER_SIZE];
-        int tripletLength = 0;
-
-        splitBytes(stringBinaryRepesentation, binaryLength, triplets, tripletLength);
-
-        uint8_t buffer[MAX_BUFFER_SIZE];
-        int bufferLength = 0;
-
-        for (int i = 0; i < tripletLength; i += 3) {
-            buffer[bufferLength++] = START_BYTE;
-
-            for (int j = 0; j < 3 && (i + j) < tripletLength; ++j) {
-                buffer[bufferLength++] = triplets[i + j];
-            }
-
-            buffer[bufferLength++] = END_BYTE;
-            buffer[bufferLength++] = START_CHECKSUM;
-
-            uint8_t combinedBits = 0;
-            combinedBits |= (triplets[i] << 5);
-            combinedBits |= (triplets[i + 1] << 2);
-            combinedBits |= (triplets[i + 2] >> 1);
-
-            buffer[bufferLength++] = createChecksum(combinedBits);
-            buffer[bufferLength++] = END_CHECKSUM;
-
-            sendBuffer(buffer, bufferLength);
-        }
-
-        delay(2000); // Delay before resending
-    } else {
-        // Receiving Mode
-        receiveData();
-    }
-}
