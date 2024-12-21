@@ -144,7 +144,10 @@ int createChecksum(const uint8_t byte) {
 uint8_t getDATA_PINS() {
     uint8_t data = 0;
     for (int i = 0; i < 4; i++) {
-        data += digitalRead(DATA_PINS[i]) * pow(2, i);
+        // data += digitalRead(DATA_PINS[i]) * pow(2, i);
+        if (digitalRead(DATA_PINS[i])) {
+            data |= (1 << i); // Set the corresponding bit if the pin is HIGH
+        }
     }
     return data;
 }
