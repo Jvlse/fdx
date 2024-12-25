@@ -34,18 +34,17 @@ int checksumBufferIndex = 0;
 bool byteStarted = false;
 bool byteEnded = false;
 bool receivingChecksum = false;
+bool manchester = false;
 bool isMaster = false; // Determines whether the Arduino is in sender mode
 bool write = false;
 bool read = false;
+uint8_t lastHalfByte;
 
 
 // Main Setup and Loop
 void setup() {
     Serial.begin(9600);
-
     setPinsAsInput();
-
-    
     Serial.read();
 
     Serial.println(isMaster ? "Master (Sender) Mode" : "Slave (Receiver) Mode");
@@ -53,8 +52,6 @@ void setup() {
 
 void loop() {
     if (isMaster) {
-        // Sending Mode
-        const char* input = "Hello, Arduino!";
         uint8_t stringBinaryRepesentation[MAX_BUFFER_SIZE];
         int binaryLength = 0;
 
@@ -91,14 +88,14 @@ void loop() {
 
         delay(2000); // Delay before resending
     } else {
-        // Receiving Mode
         receiveData();
     }
 }
 
 // Helper Functions
 uint8_t manchester(bool flank, uint8_t data) {
-    return flank ? (data ^ 0b1111) : data;
+    return flank ? (data == 0b1111) : data;
+                // ~(data ^ 0b1111)
 }
 
 void strToBinary(const char* str, uint8_t* binaryArray, int& length) {
@@ -121,7 +118,7 @@ void splitBytes(const uint8_t* fullBytes, int fullLength, uint8_t* triplets, int
 char translateByte(Vector<uint8_t> byteBuffer) {
     if (byteBufferIndex != 3) {
         Serial.println("Error: byteBuffer must contain exactly 3 chunks.");
-        return '\0';
+        return '\0'; // ARQ
     }
 
     uint8_t combined = 0;
@@ -134,9 +131,23 @@ char translateByte(Vector<uint8_t> byteBuffer) {
 
 int createChecksum(const uint8_t byte) {
     int count = 0;
-    for (int i = 0; i < 8; ++i) {
+    for (int i = 0; i < 8; i++) {
         count += (byte >> i) & 1;
     }
+
+    // Vector<Vector<uint8_t>> checksum;
+    // int reihe = 0;
+    // int zeile = 0;
+    // for (int i = 0; i < 64; i++) {
+    //   reihe += buffer[i];
+    //   zeile += buffer[pow(8, i)-1]
+    //   if(i % 8 == 0) {
+    //     checksum.push_back((Vector<uint8_t>) reihe, zeile);
+    //     reihe = 0;
+    //     zeile = 0;
+    //   }
+    // }
+
     return count;
 }
 
@@ -231,30 +242,35 @@ uint8_t readNibble() {
   return nibble;
 }
 
+
+// TODO: fix, halfByte ist momentan noch mit manchester verschlüsselt
 void receiveData() {
-    uint8_t currentHalfByte;
-
-    if (currentHalfByte != 0b00000000) {
-        currentHalfByte = getDATA_PINS();
-
-        if (currentHalfByte & 0b1000) { // Control signal check
-            if (currentHalfByte == START_BYTE) {
-                byteStarted = true;
-                byteEnded = false;
-                byteBufferIndex = 0;
-                checksumBufferIndex = 0;
-            } else if (currentHalfByte == END_BYTE) {
-                byteEnded = true;
-            } else if (currentHalfByte == START_CHECKSUM) {
-                receivingChecksum = true;
-            } else if (currentHalfByte == END_CHECKSUM) {
-                receivingChecksum = false;
-                processReceivedData();
+    uint8_t halfByte;
+    if (lastHalfByte != getDATA_PINS()) {
+        halfByte = getDATA_PINS();
+        if (halfByte == manchester(manchester, lastHalfByte) && manchester) {
+            halfByte = manchester(manchester, lastHalfByte);
+            if (halfByte & 0b1000) { // Control signal check
+                if (halfByte == START_BYTE) {
+                    byteStarted = true;
+                    byteEnded = false;
+                    byteBufferIndex = 0;
+                    checksumBufferIndex = 0;
+                } else if (halfByte == END_BYTE) {
+                    byteEnded = true;
+                } else if (halfByte == START_CHECKSUM) {
+                    receivingChecksum = true;
+                } else if (halfByte == END_CHECKSUM) {
+                    receivingChecksum = false;
+                    processReceivedData();
+                }
+            } else if (byteStarted && !byteEnded) {
+                byteBuffer[byteBufferIndex++] = halfByte;
+            } else if (receivingChecksum) {
+                checksumBuffer[checksumBufferIndex++] = halfByte;
             }
-        } else if (byteStarted && !byteEnded) {
-            byteBuffer[byteBufferIndex++] = currentHalfByte;
-        } else if (receivingChecksum) {
-            checksumBuffer[checksumBufferIndex++] = currentHalfByte;
+        } else {
+            lastHalfByte = halfByte;
         }
     }
 }
