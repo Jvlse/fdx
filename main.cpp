@@ -27,7 +27,8 @@ struct ControlSignals {
 
 
 std::bitset<4> manchester(bool flank, std::bitset<4> data) {
-    return flank? ~data : data;
+    return flank? data == 0b1111 : data;
+                // = ~(data ^ 0b1111)
 }
 
 
