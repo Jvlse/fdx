@@ -33,7 +33,7 @@ int checksumBufferIndex = 0;
 bool pckgStarted = false;
 bool pckgEnded = false;
 bool receivingChecksum = false;
-bool manchester = false;
+bool bmanchester = false;
 bool isMaster = false; // Determines whether the Arduino is in sender mode
 bool write = false;
 bool read = false;
@@ -54,7 +54,7 @@ void loop() {
         uint8_t stringBinaryRepesentation[MAX_BUFFER_SIZE];
         int binaryLength = 0;
 
-        strToBinary(input, stringBinaryRepesentation, binaryLength);
+        // strToBinary(input, stringBinaryRepesentation, binaryLength);
 
         uint8_t triplets[MAX_BUFFER_SIZE];
         int tripletLength = 0;
@@ -92,8 +92,7 @@ void loop() {
 }
 
 uint8_t manchester(bool flank, uint8_t data) {
-    return flank ? (data == 0b1111) : data;
-                // ~(data ^ 0b1111)
+    return flank ? (data == 0b1111) : data;// ~(data ^ 0b1111)
 }
 
 // Helper Functions
@@ -260,20 +259,20 @@ void receiveData() {
         if (halfByte == manchester(manchester, lastHalfByte) && manchester) {
             halfByte = manchester(manchester, lastHalfByte);
             if (halfByte & 0b1000) { // Control signal check
-                if (halfByte == START_BYTE) {
-                    byteStarted = true;
-                    byteEnded = false;
+                if (halfByte == START_PCKG) {
+                    pckgStarted = true;
+                    pckgEnded = false;
                     byteBufferIndex = 0;
                     checksumBufferIndex = 0;
-                } else if (halfByte == END_BYTE) {
-                    byteEnded = true;
+                } else if (halfByte == END_PCKG) {
+                    pckgEnded = true;
                 } else if (halfByte == START_CHECKSUM) {
                     receivingChecksum = true;
                 } else if (halfByte == END_CHECKSUM) {
                     receivingChecksum = false;
                     processReceivedData();
                 }
-            } else if (byteStarted && !byteEnded) {
+            } else if (pckgStarted && !pckgEnded) {
                 byteBuffer[byteBufferIndex++] = halfByte;
             } else if (receivingChecksum) {
                 checksumBuffer[checksumBufferIndex++] = halfByte;
