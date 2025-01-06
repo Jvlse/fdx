@@ -14,11 +14,10 @@ const int CLOCK_MS = 50; // Clock duration in milliseconds
 const int DATA_PINS[4] = {2, 3, 4, 5};  // Pins for 4-bit output
 
 // Control Signals
-const uint8_t START_BYTE = 0b1011;
-const uint8_t END_BYTE = 0b1001;
+const uint8_t START_PCKG = 0b1011;
+const uint8_t END_PCKG = 0b1001;
 const uint8_t START_CHECKSUM = 0b1010;
 const uint8_t END_CHECKSUM = 0b1000;
-const uint8_t ACK = 0b1101;
 const uint8_t AQR = 0b1110;
 const uint8_t BEACON = 0b1100;
 const uint8_t BEACON2 = 0b0011;
@@ -31,8 +30,8 @@ Vector<uint8_t> recievedBuffer;
 uint8_t checksumBuffer[MAX_BUFFER_SIZE];
 int byteBufferIndex = 0;
 int checksumBufferIndex = 0;
-bool byteStarted = false;
-bool byteEnded = false;
+bool pckgStarted = false;
+bool pckgEnded = false;
 bool receivingChecksum = false;
 bool isMaster = false; // Determines whether the Arduino is in sender mode
 bool write = false;
@@ -69,13 +68,13 @@ void loop() {
         int bufferLength = 0;
 
         for (int i = 0; i < tripletLength; i += 3) {
-            buffer[bufferLength++] = START_BYTE;
+            buffer[bufferLength++] = START_PCKG;
 
-            for (int j = 0; j < 3 && (i + j) < tripletLength; ++j) {
+            for (int j = 0; j < 3 && (i + j) < tripletLength; j++) {
                 buffer[bufferLength++] = triplets[i + j];
             }
 
-            buffer[bufferLength++] = END_BYTE;
+            buffer[bufferLength++] = END_PCKG;
             buffer[bufferLength++] = START_CHECKSUM;
 
             uint8_t combinedBits = 0;
@@ -96,11 +95,11 @@ void loop() {
     }
 }
 
-// Helper Functions
 uint8_t manchester(bool flank, uint8_t data) {
     return flank ? (data ^ 0b1111) : data;
 }
 
+// Helper Functions
 void strToBinary(const char* str, uint8_t* binaryArray, int& length) {
     length = 0;
     for (int i = 0; str[i] != '\0'; i++) {
@@ -151,11 +150,21 @@ uint8_t getDATA_PINS() {
 
 
 Vector<uint8_t> recieveSingle(uint8_t sendData, Vector<uint8_t> recievedData) {
-    for (int i = 0; i < 4; i++) {
-      recievedData.push_back(manchester(false, digitalRead(i)));
+    uint8_t tmp = getDATA_PINS();
+    int i = 0;
+    for (i;i < 4; i++) {
       if(write) {
         digitalWrite(i+4, manchester(false, sendData)); 
       }
+    }
+    if (manchester(false, tmp) == BEACON2) {
+      digitalWrite(i+2, 1); 
+      digitalWrite(i+3, 1); 
+      Vector<uint8_t> a;
+      a.push_back(BEACON2);
+      return a;
+    } else {
+      recievedData.push_back(tmp);
     }
     delay(CLOCK_MS);
     
@@ -235,20 +244,20 @@ void receiveData() {
         currentHalfByte = getDATA_PINS();
 
         if (currentHalfByte & 0b1000) { // Control signal check
-            if (currentHalfByte == START_BYTE) {
-                byteStarted = true;
-                byteEnded = false;
+            if (currentHalfByte == START_PCKG) {
+                pckgStarted = true;
+                pckgEnded = false;
                 byteBufferIndex = 0;
                 checksumBufferIndex = 0;
-            } else if (currentHalfByte == END_BYTE) {
-                byteEnded = true;
+            } else if (currentHalfByte == END_PCKG) {
+                pckgEnded = true;
             } else if (currentHalfByte == START_CHECKSUM) {
                 receivingChecksum = true;
             } else if (currentHalfByte == END_CHECKSUM) {
                 receivingChecksum = false;
                 processReceivedData();
             }
-        } else if (byteStarted && !byteEnded) {
+        } else if (pckgStarted && !pckgEnded) {
             byteBuffer[byteBufferIndex++] = currentHalfByte;
         } else if (receivingChecksum) {
             checksumBuffer[checksumBufferIndex++] = currentHalfByte;
