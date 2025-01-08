@@ -1,8 +1,8 @@
 #include <Arduino.h>
 #include <bitHelpers.h>
 #include <Vector.h>
-// #include <StandardCplusplus.h>
-// #include <boost_1_51_0.h>
+
+// pc, linux pipe -> b15 -> arduino -> speichert auf anderem pc, von anderem pc -> adruino -> b15 -> pc über linux pipe
 
 // echo ~/mnt/datadisk/*random.bin + "\n" > /dev/ttyUSB0
 
@@ -10,8 +10,8 @@
 const int CLOCK_MS = 50; // Clock duration in milliseconds
 
 // Pin Definitions
-// const int DATA_PIN = 2; // Pin used for data transmission and reception
-const int DATA_PINS[4] = {2, 3, 4, 5};  // Pins for 4-bit output
+const int SEND_PINS[4] = {2, 3, 4, 5};  // Pins for 4-bit output
+const int RECIEVE_PINS[4] = {6, 7, 8, 9};  // Pins for 4-bit output
 
 // Control Signals
 const uint8_t START_PCKG = 0b1011;
@@ -33,44 +33,25 @@ int checksumBufferIndex = 0;
 bool pckgStarted = false;
 bool pckgEnded = false;
 bool receivingChecksum = false;
-bool bmanchester = false;
-bool isMaster = false; // Determines whether the Arduino is in sender mode
 bool write = false;
 bool read = false;
 uint8_t lastHalfByte = 0;
-uint8_t falseRead = 0;
-unsigned long ElapsedTime;
 
-
-// Main Setup and Loop
 void setup() {
   Serial.begin(9600);
   setPinsAsInput();
   Serial.read();
 
-  Serial.println(isMaster ? "Master (Sender) Mode" : "Slave (Receiver) Mode");
-  bmanchester = false;
+  Serial.println(write ? "Master (Sender) Mode" : "Slave (Receiver) Mode");
 }
 
 void loop() {
-  if (falseRead = 5) {
-    bmanchester = !bmanchester;
-    falseRead = 0;
-  }
-  unsigned long StartTime = millis();
-
-  unsigned long CurrentTime = millis();
-  ElapsedTime = CurrentTime - StartTime;
-  if (isMaster) {
+  if (write) {
     uint8_t stringBinaryRepesentation[MAX_BUFFER_SIZE];
     int binaryLength = 0;
 
-    // strToBinary(input, stringBinaryRepesentation, binaryLength);
-
     uint8_t triplets[MAX_BUFFER_SIZE];
     int tripletLength = 0;
-
-    splitBytes(stringBinaryRepesentation, binaryLength, triplets, tripletLength);
 
     uint8_t buffer[MAX_BUFFER_SIZE];
     int bufferLength = 0;
@@ -102,26 +83,21 @@ void loop() {
   }
 }
 
-uint8_t manchester(bool flank, uint8_t data) {
-  return flank ? (data == 0b1111) : data; // ~(data ^ 0b1111)
-}
-
-// Helper Functions
 void strToBinary(const char* str, uint8_t* binaryArray, int& length) {
-  length = 0;
-  for (int i = 0; str[i] != '\0'; i++) {
-    binaryArray[length++] = static_cast<uint8_t>(str[i]);
-  }
+    length = 0;
+    for (int i = 0; str[i] != '\0'; i++) {
+        binaryArray[length++] = static_cast<uint8_t>(str[i]);
+    }
 }
 
 void splitBytes(const uint8_t* fullBytes, int fullLength, uint8_t* triplets, int& tripletLength) {
-  tripletLength = 0;
-  for (int i = 0; i < fullLength; i++) {
-    uint8_t byte = fullBytes[i];
-    triplets[tripletLength++] = (byte >> 5) & 0b0111;
-    triplets[tripletLength++] = (byte >> 2) & 0b0111;
-    triplets[tripletLength++] = (byte << 1) & 0b0110;
-  }
+    tripletLength = 0;
+    for (int i = 0; i < fullLength; i++) {
+        uint8_t byte = fullBytes[i];
+        triplets[tripletLength++] = (byte >> 5) & 0b0111;
+        triplets[tripletLength++] = (byte >> 2) & 0b0111;
+        triplets[tripletLength++] = (byte << 1) & 0b0110;
+    }
 }
 
 char translateByte(Vector<uint8_t> byteBuffer) {
@@ -161,11 +137,10 @@ int createChecksum(const uint8_t byte) {
 }
 
 
-uint8_t getDATA_PINS() {
+uint8_t getRECIEVE_PINS() {
   uint8_t data = 0;
   for (int i = 0; i < 4; i++) {
-    // data += digitalRead(DATA_PINS[i]) * pow(2, i);
-    if (digitalRead(DATA_PINS[i])) {
+    if (digitalRead(RECIEVE_PINS[i])) {
       data |= (1 << i); // Set the corresponding bit if the pin is HIGH
     }
   }
@@ -175,48 +150,14 @@ uint8_t getDATA_PINS() {
 
 Vector<uint8_t> recieveSingle(uint8_t sendData, Vector<uint8_t> recievedData) {
   setPinsAsInput();
-  uint8_t tmp = getDATA_PINS();
+  uint8_t tmp = getRECIEVE_PINS();
   int i = 0;
   for (i; i < 4; i++) {
-    if (write) {
-      setPinsAsOutput();
-      digitalWrite(i + 4, manchester(bmanchester, sendData));
-    }
-  }
-  if (manchester(bmanchester, tmp) == BEACON2) {
     setPinsAsOutput();
-    bmanchester = !bmanchester;
-    digitalWrite(i + 2, 1);
-    digitalWrite(i + 3, 1);
-    Vector<uint8_t> a;
-    a.push_back(BEACON2);
-    return a;
-  } else {
-    recievedData.push_back(tmp);
+    digitalWrite(i + 4, sendData);
   }
-  bmanchester = !bmanchester;
-  delay(ElapsedTime);
-
-  setPinsAsInput();
-  tmp = getDATA_PINS();
-  for (int i = 0; i < 4; i++) {
-    if (write) {
-      setPinsAsOutput();
-      digitalWrite(i + 4, manchester(bmanchester, sendData));
-      write = false;
-    }
-  }
-  if (manchester(bmanchester, tmp) == BEACON2) {
-    setPinsAsOutput();
-    digitalWrite(i + 2, 1);
-    digitalWrite(i + 3, 1);
-    Vector<uint8_t> a;
-    a.push_back(BEACON2);
-    return a;
-  } else {
-    recievedData.push_back(tmp);
-  }
-  bmanchester = !bmanchester;
+  recievedData.push_back(tmp);
+  delay(CLOCK_MS);
   return recievedData;
 }
 
@@ -225,13 +166,7 @@ Vector<uint8_t> recieveSingle(uint8_t sendData, Vector<uint8_t> recievedData) {
 void sendSingle(uint8_t sendData) {
   for (int i = 0; i < 4; i++) {
     setPinsAsOutput();
-    digitalWrite(i + 4, manchester(false, sendData));
-  }
-  delay(CLOCK_MS);
-
-  for (int i = 0; i < 4; i++) {
-    setPinsAsOutput();
-    digitalWrite(i + 4, manchester(true, sendData));
+    digitalWrite(i + 4, sendData);
   }
   delay(CLOCK_MS);
 }
@@ -239,14 +174,13 @@ void sendSingle(uint8_t sendData) {
 void sendBuffer(Vector<uint8_t> buffer, Vector<uint8_t> recievedBuffer) {
   for (size_t i = 0; i < buffer.size(); i++) {
     if (read) {
-      recieveSingle(buffer[i], recievedBuffer); // TODO: replace i in recievedBuffer
+      recievedBuffer = recieveSingle(buffer[i], recievedBuffer); // TODO: replace i in recievedBuffer
     }
     else {
       sendSingle(buffer[i]);
     }
   }
 }
-
 
 // Receiving Functions
 void processReceivedData() {
@@ -272,20 +206,12 @@ void processReceivedData() {
   checksumBufferIndex = 0;
 }
 
-uint8_t readNibble() {
-  uint8_t nibble = 0;
-  for (int i = 0; i < 4; i++) {
-    nibble |= (digitalRead(DATA_PINS[i]) << i);  // Read bits and assemble into a nibble
-  }
-  return nibble;
-}
-
 // TODO: fix, halfByte ist momentan noch mit manchester verschlüsselt
 void receiveData() {
   setPinsAsInput();
-  uint8_t halfByte = getDATA_PINS();
-  if (halfByte == manchester(bmanchester, lastHalfByte) && bmanchester) {
-    halfByte = manchester(bmanchester, lastHalfByte);
+  uint8_t halfByte = getRECIEVE_PINS();
+  if (halfByte == lastHalfByte) {
+    halfByte = lastHalfByte;
     if (halfByte & 0b1000) { // Control signal check
       if (halfByte == START_PCKG) {
         pckgStarted = true;
@@ -300,7 +226,6 @@ void receiveData() {
         receivingChecksum = false;
         processReceivedData();
       } else if (halfByte == AQR) {
-        falseRead++;
         byteBufferIndex -= (8 + 5);
       } else if (halfByte == BEACON2) {
         // TODO: für richtige seite
@@ -312,21 +237,19 @@ void receiveData() {
     } else if (receivingChecksum) {
       checksumBuffer[checksumBufferIndex++] = halfByte;
     }
-    lastHalfByte = halfByte; // TODO: Überprüfen
-  } else {
-    lastHalfByte = halfByte;
   }
+  lastHalfByte = halfByte; // TODO: Überprüfen
 }
 
-// TODO: für alle pins
+// TODO: für alle pins, auch send
 void setPinsAsOutput() {
   for (int i = 0; i < 4; i++) {
-    pinMode(DATA_PINS[i], OUTPUT);
+    pinMode(RECIEVE_PINS[i], OUTPUT);
   }
 }
 
 void setPinsAsInput() {
   for (int i = 0; i < 4; i++) {
-    pinMode(DATA_PINS[i], INPUT);
+    pinMode(RECIEVE_PINS[i], INPUT);
   }
 }
