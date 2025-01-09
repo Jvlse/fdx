@@ -1,0 +1,46 @@
+Einrichten der Verbindung:
+	Empfängerseite R oder L festlegen.
+
+Senden:
+	S-->E: Anzahl der Blöcke übermitteln (eröffnet Verbindung)
+	Für jeden Block senden:
+		Blocknummer
+		Blocklänge
+		Parität
+		Alle Datenzeilen
+	Für alle falsch übermittelten Blöcke (max. 3 mal) sendet Empfänger:
+		Blocknummer(fehlerhaft) -> Blocksendealg wird von Sender erneut ausgeführt
+
+
+Befehlszeichen:
+10
+01
+10
+01
+
+Benötigte Befehle:
+0000 - Unsichtbares Verhalten -> Zwei Halbzeichen sind identisch
+0001 - Unsichtbares Verhalten -> Zwei Halbzeichen sind identisch
+0010 - Senden vorbereiten - Anzahl der Blöcke in den nächsten 8 Halbzeichen, eröffnet Gespräch
+0011 - Block vorbereiten - Blocknummer in den nächsten 8 Halbzeichen übermitteln
+0100 - Block vorbereiten - Länge des Blocks in den nächsten 2 Halbzeichen
+0110 - Block überprüfen - Paritätssumme in den nächsten 4 Halbzeichen übermitteln
+0111 - Block erneut anfordern - Blocknummer in den nächsten 8 Halbzeichen übermitteln
+1000 - Senden beenden - Sender fragt Beendigung des Gesprächs an.
+1001 - Block erneut anforderm - Empfänger möchte Senden beenden Anfrage
+1011 - Unsichtbares Verhalten -> Die übertragenen Daten entsprechen dem Anfang des Befehlszeichen 1010
+1100 - Verbindung etablieren - Empfänger eröffnet Verbindung
+
+Ein Block: 255Byte (=Zeilen) -> Blocklänge braucht 8 Bit Zahl
+Paritätsumme maximal pro Block: 255*8=2040 -> 3 Bit
+Benötigte Blöcke 1GB: etwa 3Mio -> 16,7 Mio ist 6 Halbzeichen
+
+	
+Ablauf Zuhören:
+Durch Befehlszeichen in Zuhörmodus versetzen. Steuerzahlcounter und/oder Datenzeilencounter erhöhen.
+Nur wenn Counter einen Wert >0 haben wird schreibend zugehört. Befehlszeichenbit hat Priotität vor Steuerzahlcounter hat Priorität vor Datenzeilecounter
+Halbzeichen, Vollzeichen beachten: Ausschließlich Befehlsymbol ist ein Halbzeichen.
+
+Sendewarteschlange: Paralleler Thread?
+
+Prio Warteschlange: Nur leeren, wenn entweder keine Übertragung aktiv, oder nur vor bestimmten Steuerzeichen (wie Block senden), nicht vor jedem Steuerzeichen!
