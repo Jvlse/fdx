@@ -16,55 +16,7 @@ void debugBlockInhalt(Block* &bloecke, std::streampos &anzBytes) {
 }
 
 //Klasse Übertragung
-
 bool Uebertragung::ladeBinFile() {
-    /*
-    
-    if ((pfad.length() > 3) && (pfad.at(pfad.length()-4) == '.') && (pfad.at(pfad.length()-3) == 'b') && (pfad.at(pfad.length()-2) == 'i') && (pfad.at(pfad.length()-1) == 'n')) {
-        dateipfad = pfad;
-    } else {return false;}
-
-  
-  
-  std::streampos anzBytes;
-  char * byteListe;
-
-  std::ifstream file (dateipfad, std::ios::in|std::ios::binary|std::ios::ate); //Setzen des Filepointers an letzte Stelle um Größe zu ermitteln
-  
-  if (file.is_open())
-  {
-    anzBytes = file.tellg();
-    byteListe = new char [anzBytes]; //RAM Block in Größe der Datei allokieren
-    file.seekg (0, std::ios::beg); //File Pointer auf erste Stelle setzen
-    file.read (byteListe, anzBytes);
-    file.close();
-
-    bloecke = new Block[(anzBytes/blockgroesse)+1];
-    int verbleibendeBytes = anzBytes;
-    anzBloecke = (anzBytes/blockgroesse)+1; 
-
-    for (int i=0; i<(anzBytes/blockgroesse)+1; ++i) {
-        bloecke[i].setBlocknummer(i);
-        if (verbleibendeBytes>blockgroesse) {
-            bloecke[i].setBlocklaenge(blockgroesse);
-        } else bloecke[i].setBlocklaenge(verbleibendeBytes);
-        verbleibendeBytes -= blockgroesse;
-
-        char* zugeschnitten = new char[blockgroesse];
-        std::copy(byteListe+i*blockgroesse, byteListe+i*blockgroesse+bloecke[i].getBlocklaenge(), zugeschnitten);
-        bloecke[i].setDaten(zugeschnitten);
-        bloecke[i].berechneParitaet();
-    }
-    delete[] byteListe;
-
-    std::cout << "Datei mit " << anzBloecke<< " Blöcken erfolgreich geladen" << std::endl;
-    //debugBlockInhalt(bloecke,anzBytes);
-
-    return true;
-  } else 
-    return false;
-    */
-
     std::cerr << "wird vorbereitet...";
 
     Block* bloeckeZwischen = new Block[8000000];
@@ -72,7 +24,6 @@ bool Uebertragung::ladeBinFile() {
     char* byteListe = new char[255];
     unsigned long bytesGelesen = 0;
     unsigned long bloeckeGelesen = 0;
-
 
     do {
         std::cin.read(byteListe, 255);
@@ -94,39 +45,10 @@ bool Uebertragung::ladeBinFile() {
     }
 
     std::cerr << "fertig" << std::endl;
-        
     return true;
 }
 
 void Uebertragung::schreibeBinFile() {
-    /*
-    std::cout << "wird abgeschlossen...";
-    // Ausklammern start
-    for (unsigned long int i=0; i<getAnzBloecke(); ++i) {
-        std::cout << "Block " << i << std::endl; 
-        for (unsigned long int j=0; j<bloecke[i].getBlocklaenge(); ++j) {
-            std::cout << std::bitset<8>(bloecke[i].getDaten()[j]) << std::endl;
-        }
-    }
-    // ausklammern ende
-    std::ofstream file("EmpfangeneDatei.bin",  std::ios::binary | std::ios::ate);
-    if (file.is_open()) {
-        for (unsigned long int i=0; i<getAnzBloecke(); ++i) {
-            //std::cout << std::bitset<8>(bloecke[i].getDaten()[0]) << std::endl;
-            //std::cout << std::bitset<8>(bloecke[i].getDaten()[16]) << std::endl;
-            file.write(bloecke[i].getDaten(), bloecke[i].getBlocklaenge()); 
-        }
-    file.close();
-    } else {
-        std::cout << "Datei konnte nicht geöffnet werden" << std::endl;
-    }
-    if (!file.good()) {
-        std::cout << "Es ist ein Fehler beim Schreiben der Datei aufgetreten" << std::endl;
-    } else {
-        std::cout << "fertig" << std::endl;
-    }
-    */
-
    for (unsigned int i=0; i<anzBloecke; ++i) {
     for (unsigned int j=0; j<getBlock(i).getBlocklaenge(); ++j) {
         std::cout << getBlock(i).getByte(j);
@@ -203,11 +125,7 @@ int Uebertragung::getAnzBytes() {
 }
 
 
-
-
-
 // Klasse Block
-
 Block::Block(Block& copy) {
     blocknummer = copy.blocknummer;
     blocklaenge = copy.blocklaenge;
@@ -239,24 +157,10 @@ unsigned int Block::getBlocklaenge() {
 void Block::setDaten(char* d) {
     daten = new char[blockgroesse];
     std::copy(d, d+blockgroesse, daten);
-
-    /*
-    std::cout << "Block " << blocknummer << std::endl;
-    for (unsigned long int i=0; i<blocklaenge; ++i) {
-        std::cout << i << ": " << std::bitset<8>(daten[i]) << std::endl;
-    }
-    */
-    //std::cout << "Setze " << std::bitset<8>(d[0]) << std::endl;
-    //std::cout << "Setze " << std::bitset<8>(d[16]) << std::endl;
     berechneParitaet();
 }
 
 char* Block::getDaten() {
-    //for (unsigned long i=0; i<blocklaenge; ++i) {
-    //    std::cout << "Debug(" << i << ") " << std::bitset<8>((char) daten[i]) << std::endl;
-    //}
-    //std::cout << "Lese " << std::bitset<8>(daten[0]) << std::endl;
-    //std::cout << "Lese " << std::bitset<8>(daten[16]) << std::endl;
     char* zwischen = new char[blockgroesse]; 
     std::copy(daten, daten+blockgroesse, zwischen);
     return zwischen;
@@ -269,7 +173,6 @@ Block::~Block() {
 unsigned char Block::getByte(int index) {
     return daten[index];
 }
-
 
 unsigned int Block::getParitaet() {
    return paritaet;
@@ -290,7 +193,6 @@ void Block::berechneParitaet() {
         }
     }
 }
-
 
 void Block::setFlagKorrektEmpfangen(bool flagValue) {
     flagKorrektEmpfangen = flagValue;

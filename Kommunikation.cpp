@@ -6,11 +6,13 @@
 #include <bitset>
 #include <chrono>
 
+// ./main ~/mnt/datadisk/*random.bin
+// usage: echo ~/mnt/datadisk/*random.bin | ./main
+// compile:  g++ -std=c++17 main.cpp -lb15fdrv -o main
 
 B15Schnittstelle schnittstelle;
 auto startClock = std::chrono::high_resolution_clock::now();
 auto endClock = std::chrono::high_resolution_clock::now();
-
 
 //Filtert die Ausgangsseite raus
 unsigned char filterAusgang(unsigned char achtBit) {
@@ -66,7 +68,6 @@ void hintergrundAufgabeIO() {
         //Schreiben
         schnittstelle.schreibeNextAusgang(); 
 
-        
         //Nochmal lesen
         aktuell = filterAusgang(schnittstelle.getEingang());
     
@@ -79,58 +80,13 @@ void hintergrundAufgabeIO() {
     }
 }
 
-
-
-//int main(int argc, char *argv[])
 int main(int argc, char *argv[]) {
-    Uebertragung sendeObjekt; 
+    Uebertragung sendeObjekt;
 
-    //sendeObjekt.ladeBinFile();
     schnittstelle.sendeGeladeneDatei();
-
-
     schnittstelle.etabliereVerbindung();
-
     schnittstelle.schreibeGeladeneDatei();
-    //schnittstelle.addQAusgangSteuersignal(0b00001100);
-
-
-    //Verbindung etabliert, Daten senden und empfangen
-
-
-
-   
-
-    
-
-    //schnittstelle.TESTEVerarbeitungEingang();
-    //schnittstelle.DEBUGAusgangsQueue();
-    
-    
-
-    /*
-    //schnittstelle.DEBUGAusgangsQueue();
-    char zwischen = filterAusgang(schnittstelle.getEingang());
-    char letzter = zwischen;
-    char aktuell = zwischen;
-
-    while(1) {
-        aktuell = filterAusgang(schnittstelle.getEingang());
-                
-        
-        if (letzter!=aktuell) {
-            schnittstelle.eingang4Bit(aktuell);
-            letzter = aktuell;
-            std::cerr << std::bitset<8>(aktuell) << std::endl;
-        }
-        
-        //Schreiben
-        schnittstelle.schreibeNextAusgang(); 
-    } 
-    */
 }
-
-
 
 //Klasse B15Schnittstelle
 B15Schnittstelle::B15Schnittstelle() {
@@ -140,7 +96,6 @@ B15Schnittstelle::B15Schnittstelle() {
     drv.delay_ms(500);
     drv.setRegister(&PORTA, 0b00000000);
     drv.delay_ms(500);
-    
 }
 
 void B15Schnittstelle::pushAnzBloecke(unsigned long x) {
@@ -159,7 +114,6 @@ void B15Schnittstelle::pushAnzBloecke(unsigned long x) {
 void B15Schnittstelle::pushAusgangBlockErneut(unsigned long nr) {
     //Blocknummer erneut senden
     addQPrioAusgangSteuersignal(0b00000111);
-   
 
     for (int i=7; i>=0; --i) {              //Höchstwertigstes Halbbyte zuerst
         char zwischen = 0;
@@ -175,7 +129,6 @@ void B15Schnittstelle::pushAusgangBlockErneut(unsigned long nr) {
 void B15Schnittstelle::pushAusgangBlock(Block b) {
     //Blocknummer
     addQAusgangSteuersignal(0b00000011);
-   
 
     for (int i=7; i>=0; --i) {              //Höchstwertigstes Halbbyte zuerst
         char zwischen = 0;
@@ -184,7 +137,6 @@ void B15Schnittstelle::pushAusgangBlock(Block b) {
         }
         addQAusgangDaten(zwischen);
     }
-
 
     //Blocklänge
     addQAusgangSteuersignal(0b00000100);
@@ -210,10 +162,10 @@ void B15Schnittstelle::pushAusgangBlock(Block b) {
     }
 
 
-    //Alle Bytes zur Queue hinzufügen
+    // Alle Bytes zur Queue hinzufügen
     for (unsigned int i=0; i<b.getBlocklaenge(); ++i) {
 
-        for (int j=1; j>=0; --j) {      //Höchstwertigstes Halbbyte zuerst
+        for (int j=1; j>=0; --j) {      // Höchstwertigstes Halbbyte zuerst
             char zwischen = 0;
             for (int k=0;k<4; ++k) {
                 zwischen |= ((b.getByte(i) >> ((j*4)+k)) & 1) << k;
@@ -254,13 +206,8 @@ void B15Schnittstelle::schreibeNextAusgang() {
                 drv.setRegister(&PORTA, (int) pufferDaten1);
                 qAusgang.pop(); 
             }
-
-
-            
         } else {
             if (!qPrioAusgang.empty()) {
-            //std::cerr << std::bitset<8>(qPrioAusgang.front()) << std::endl;
-            //drv.setRegister(&DDRA, 0b00001111);
             drv.setRegister(&PORTA, (int) qPrioAusgang.front());
             qPrioAusgang.pop();
         }
@@ -314,8 +261,6 @@ void B15Schnittstelle::addQPrioAusgangSteuersignal(char steuercode) {
 }
 
 void B15Schnittstelle::addQAusgangDaten(char vierBit) {
-        
-        
         //Überprüfe, ob gleiches Byte gesendet wird -> Steuerzeichen einfügen
         if (vorherigEingefuegt == vierBit) {
             qAusgang.push(steuer1);
@@ -338,15 +283,7 @@ void B15Schnittstelle::addQAusgangDaten(char vierBit) {
         } else {
             qAusgang.push(vierBit);
             vorherigEingefuegt = vierBit;
-            
-            /*Nicht benötigt
-            if (vorherigEingefuegt == steuer1 && vierBit == steuer2) {
-                qAusgang.push(0b00001100); //Daten entsprechen Steuerzeichen
-            }
-            */
         }
-    
-
 }
 
 void B15Schnittstelle::addQAusgangSteuersignal(char steuercode) {
@@ -485,7 +422,6 @@ void B15Schnittstelle::eingang4Bit(char vierBit){
                         std::cerr << " ("<< ((int) empfangsObjekt.getAnzBytes()/zeit) << " Byte/s in " << zeit << " s)" << std::endl;
                         uebertragungAktiv = false;  
                         empfangsObjekt.schreibeBinFile();
-                        
                     } else {
                         std::cerr << "- Übertragung gescheitert" << std::endl;
                         
@@ -564,8 +500,8 @@ void B15Schnittstelle::eingang4Bit(char vierBit){
                                 steuerZahl = 0;
                             }
                             for (int k=4;k<8; ++k) {
-                            steuerZahl |= 0b00001010;
-                            }  
+                                steuerZahl |= 0b00001010;
+                            }
                             verbleibendeHalbbitsSteuerZahl--;
                             if (verbleibendeHalbbitsSteuerZahl <=0) {
                                 //Steuerzahlerwartung schließen und Ereignis auslösen!
@@ -812,9 +748,3 @@ void B15Schnittstelle::schreibeGeladeneDatei() {
     } while(!qAusgang.empty() || uebertragungAktiv);
 
 }
-
-
-
-
-
-
